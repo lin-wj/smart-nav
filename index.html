@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="简洁、可管理、支持私密书签的智能网址导航">
+<title>智能多功能响应式导航</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
+<script src="https://cdn.jsdelivr.net/npm/lunar-javascript@1.7.7/lunar.js"></script>
+<style>
+body{min-height:100vh;background:linear-gradient(135deg,#0f172a,#020617);color:#f8fafc}
+body.theme-light{background:linear-gradient(135deg,#f8fafc,#e2e8f0);color:#0f172a}
+.glass{background:rgba(30,41,59,.48);backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,.07);box-shadow:0 18px 35px -15px rgba(0,0,0,.35)}
+.theme-light .glass{background:rgba(255,255,255,.72);border-color:rgba(0,0,0,.06);box-shadow:0 12px 30px -12px rgba(0,0,0,.12)}
+body.has-bg:before{content:"";position:fixed;inset:0;background:rgba(15,23,42,.52);backdrop-filter:blur(2px);z-index:-1}
+#nav-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1.75rem;align-items:start}
+.nav-column{display:flex;flex-direction:column;gap:1.75rem;min-width:0}
+.nav-column>.add-section-card{min-height:150px}
+.drop-active{outline:2px dashed rgba(129,140,248,.75)!important;background:rgba(99,102,241,.08)!important}
+.dragging{opacity:.45;transform:scale(.98);outline:2px dashed #818cf8}
+body:not(.is-admin) .admin-only{display:none!important}
+.link-card{min-width:0}
+.link-title{word-break:break-word;line-height:1.25}
+.icon-wrap{width:28px;height:28px;min-width:28px}
+.private-badge{font-size:10px;line-height:18px;width:18px;height:18px}
+@media(max-width:1279px){#nav-grid{grid-template-columns:1fr}}
+@media(max-width:640px){.link-title{font-size:13px}}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);padding:10px 20px;border-radius:10px;font-size:13px;color:#fff;box-shadow:0 8px 24px rgba(0,0,0,.25);animation:toastIn .25s ease,toastOut .3s ease 2.5s forwards;max-width:320px;text-align:center;z-index:9999;pointer-events:none}.toast-success{background:rgba(16,185,129,.85)}.toast-error{background:rgba(239,68,68,.85)}.toast-info{background:rgba(99,102,241,.85)}@keyframes toastIn{from{opacity:0;transform:translateX(-50%) translateY(12px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}@keyframes toastOut{from{opacity:1}to{opacity:0;transform:translateX(-50%) translateY(8px)}}
+</style>
+</head>
+<body class="theme-dark font-sans antialiased">
+
+<!-- Toast 容器 -->
+<div id="toast-container"></div>
+
+<!-- 右上角设置 -->
+<div class="fixed top-4 right-4 z-50">
+  <button onclick="togglePanel(event)" class="glass w-10 h-10 rounded-xl text-slate-300 hover:text-indigo-400" title="设置">
+    <i class="fas fa-sliders"></i>
+  </button>
+  <div id="panel" class="hidden absolute right-0 top-12 w-72 glass rounded-2xl p-4 space-y-3">
+    <div class="text-xs text-slate-400 font-bold">语言 / Language</div>
+    <div class="flex gap-2">
+      <button onclick="setLang('zh')" class="flex-1 py-2 rounded-lg bg-slate-800 text-xs">中文</button>
+      <button onclick="setLang('en')" class="flex-1 py-2 rounded-lg bg-slate-800 text-xs">English</button>
+    </div>
+    <div class="text-xs text-slate-400 font-bold pt-2">主题</div>
+    <div class="flex gap-2">
+      <button onclick="setTheme('theme-light')" class="flex-1 py-2 rounded-lg bg-slate-800 text-xs">☀️ 日间</button>
+      <button onclick="setTheme('theme-dark')" class="flex-1 py-2 rounded-lg bg-slate-800 text-xs">🌙 夜间</button>
+    </div>
+    <div class="admin-only border-t border-slate-700 pt-3 space-y-2">
+      <div class="text-xs text-slate-400 font-bold">全站壁纸</div>
+      <div class="flex gap-2">
+        <input id="bg-url" class="flex-1 bg-slate-800 rounded-lg px-2 py-2 text-xs" placeholder="https://...">
+        <button onclick="saveWallpaper()" class="bg-indigo-600 rounded-lg px-3 text-xs">保存</button>
+      </div>
+      <button onclick="clearWallpaper()" class="text-xs text-red-400">清除壁纸</button>
+    </div>
+    <div class="admin-only border-t border-slate-700 pt-3">
+      <div class="text-xs text-slate-400 font-bold mb-2">修改管理员密码</div>
+      <div class="flex gap-2">
+        <input id="new-pwd" type="password" class="flex-1 bg-slate-800 rounded-lg px-2 py-2 text-xs" placeholder="新密码">
+        <button onclick="changePassword()" class="bg-emerald-600 rounded-lg px-3 text-xs">保存</button>
+      </div>
+    </div>
+    <div class="border-t border-slate-700 pt-3">
+      <button id="login-btn" onclick="login()" class="w-full py-2 rounded-lg bg-indigo-600 text-xs">管理员登录</button>
+      <button id="logout-btn" onclick="logout()" class="hidden admin-only w-full py-2 rounded-lg bg-red-950/60 text-red-300 text-xs">退出登录</button>
+    </div>
+  </div>
+</div>
+
+<main class="max-w-7xl mx-auto px-4 py-12 lg:py-16">
+  <!-- 日期 / 问候 / 天气 -->
+  <section class="text-center mb-10">
+    <div id="clock" class="text-5xl lg:text-7xl font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400">00:00:00</div>
+    <div id="date-line" class="mt-2 text-sm text-slate-300"></div>
+    <div id="greeting" class="mt-2 text-sm md:text-base text-indigo-300"></div>
+    <div id="weather" class="mt-2 text-sm text-emerald-300">正在获取天气...</div>
+  </section>
+
+  <!-- 搜索 -->
+  <section class="max-w-2xl mx-auto mb-14">
+    <form id="search-form" action="https://www.google.com/search" target="_blank" class="glass rounded-2xl flex items-center">
+      <select id="engine" onchange="changeEngine()" class="bg-transparent border-0 outline-none px-4 py-4 text-sm text-slate-300">
+        <option value="google">Google</option><option value="bing">Bing</option>
+        <option value="baidu">百度</option><option value="github">GitHub</option>
+      </select>
+      <input id="search" name="q" class="flex-1 bg-transparent outline-none px-2 py-4 text-base" placeholder="搜索...">
+      <button class="px-5 text-slate-400 hover:text-indigo-400"><i class="fas fa-search"></i></button>
+    </form>
+  </section>
+
+  <!-- 导航区域 -->
+  <section id="nav-grid" class="grid grid-cols-1 xl:grid-cols-3 gap-7 items-start"></section>
+
+  <!-- 友情链接 -->
+  <section class="mt-10 glass rounded-2xl p-6">
+    <div class="flex justify-between items-center mb-4">
+      <h2 class="font-semibold text-emerald-400"><i class="fas fa-handshake mr-2"></i>友情链接</h2>
+      <button onclick="openLinkModal('friend')" class="admin-only text-xs px-3 py-1.5 rounded-lg bg-emerald-600/20 text-emerald-300">添加</button>
+    </div>
+    <div id="friend-links" class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3"></div>
+  </section>
+
+  <footer ondblclick="login()" class="text-center text-xs text-slate-500 mt-10 cursor-pointer">
+    © 2026 智能生态导航 · Powered by Cloudflare
+    <span id="admin-badge" class="hidden ml-2 px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300">管理模式</span>
+  </footer>
+</main>
+
+<!-- 添加/编辑书签 -->
+<div id="link-modal" class="hidden fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm items-center justify-center p-4">
+  <div class="w-full max-w-md glass rounded-2xl p-6">
+    <h3 id="link-modal-title" class="font-semibold mb-5">添加书签</h3>
+    <input type="hidden" id="edit-id"><input type="hidden" id="edit-section">
+    <div class="space-y-3">
+      <input id="link-name" class="w-full bg-slate-800 rounded-xl px-3 py-2.5 text-sm" placeholder="网站名称">
+      <input id="link-url" class="w-full bg-slate-800 rounded-xl px-3 py-2.5 text-sm" placeholder="https://example.com">
+      <label class="flex items-center gap-2 text-sm text-slate-300">
+        <input id="link-private" type="checkbox" class="accent-indigo-500">
+        登录后可见
+      </label>
+    </div>
+    <div class="flex justify-end gap-2 mt-6">
+      <button onclick="closeLinkModal()" class="px-4 py-2 rounded-lg bg-slate-700 text-xs">取消</button>
+      <button onclick="saveLink()" class="px-4 py-2 rounded-lg bg-indigo-600 text-xs">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 添加/编辑分类 -->
+<div id="section-modal" class="hidden fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm items-center justify-center p-4">
+  <div class="w-full max-w-md glass rounded-2xl p-6">
+    <h3 id="section-modal-title" class="font-semibold mb-5">添加分类</h3>
+    <input type="hidden" id="section-id">
+    <input id="section-name" class="w-full bg-slate-800 rounded-xl px-3 py-2.5 text-sm" placeholder="例如：AI 工具">
+    <label class="flex items-center gap-2 text-sm text-slate-300 mt-3">
+      <input id="section-private" type="checkbox" class="accent-indigo-500">
+      整个分类仅登录后可见
+    </label>
+    <div class="flex justify-end gap-2 mt-6">
+      <button onclick="closeSectionModal()" class="px-4 py-2 rounded-lg bg-slate-700 text-xs">取消</button>
+      <button onclick="saveSection()" class="px-4 py-2 rounded-lg bg-indigo-600 text-xs">保存</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// Toast 函数
+function toast(msg, type="info"){
+  const t=document.createElement("div");
+  t.className="toast toast-"+type;
+  t.textContent=msg;
+  document.body.appendChild(t);
+  setTimeout(()=>t.remove(),3000);
+}
+
+let isAdmin=false, config={wallpaper:"",dynamicSections:[]}, customLinks=[], friendLinks=[];
+let currentTarget="custom", dragData=null;
+const engines={
+ google:["https://www.google.com/search","q"],bing:["https://cn.bing.com/search","q"],
+ baidu:["https://www.baidu.com/s","wd"],github:["https://github.com/search","q"]
+};
+
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+const uid=()=>crypto.randomUUID?crypto.randomUUID():Date.now().toString(36)+Math.random().toString(36).slice(2);
+function isPrivate(x){return x===true||x==="true"}
+function visible(x){return !isPrivate(x)||isAdmin}
+
+async function api(url,opt={}){
+  const r=await fetch(url,{credentials:"same-origin",...opt});
+  if(!r.ok) throw new Error(await r.text());
+  return r;
+}
+
+async function loadAll(){
+  try{
+    const auth=await api("/api/auth"); isAdmin=(await auth.json()).authenticated===true;
+  }catch{isAdmin=false}
+  try{config=await (await api("/api/config")).json()}catch{config={wallpaper:"",dynamicSections:[]}}
+  try{customLinks=await (await api("/api/links")).json()}catch{customLinks=[]}
+  // 友情链接：优先 KV API，失败则降级 localStorage
+  try{
+    const fr=await api("/api/friend-links");
+    friendLinks=await fr.json();
+  }catch{
+    try{friendLinks=JSON.parse(localStorage.getItem("nav_friend_links")||"[]")}catch{friendLinks=[]}
+  }
+  normalizeData(); applyAdminUI(); renderAll();
+}
+function normalizeData(){
+  config.dynamicSections=(config.dynamicSections||[]).map(s=>({
+    id:s.id||uid(),title:s.title||"未命名分类",private:isPrivate(s.private),
+    links:(s.links||[]).map(l=>({id:l.id||uid(),name:l.name||"未命名",url:l.url||"#",private:isPrivate(l.private)}))
+  }));
+  customLinks=(customLinks||[]).map(l=>({id:l.id||uid(),name:l.name||"未命名",url:l.url||"#",private:isPrivate(l.private)}));
+  friendLinks=(friendLinks||[]).map(l=>({id:l.id||uid(),name:l.name||"未命名",url:l.url||"#"}));
+}
+function applyAdminUI(){
+  document.body.classList.toggle("is-admin",isAdmin);
+  $("admin-badge").classList.toggle("hidden",!isAdmin);
+  $("login-btn").classList.toggle("hidden",isAdmin);
+  $("logout-btn").classList.toggle("hidden",!isAdmin);
+}
+function renderAll(){renderSections();renderCustom();renderFriends();if(config.wallpaper)applyBg(config.wallpaper)}
+function getMasonryColumnCount(){return window.innerWidth>=1280?3:1}
+function renderSections(){
+  const grid=$("nav-grid");grid.innerHTML="";
+  const count=getMasonryColumnCount();
+  const cols=[];
+  for(let i=0;i<count;i++){const c=document.createElement("div");c.className="nav-column";c.dataset.column=i;grid.appendChild(c);cols.push(c)}
+  const cards=[];
+  config.dynamicSections.forEach(sec=>{
+    if(!visible(sec.private))return;
+    cards.push(makeSectionCard(sec));
+  });
+  // 将分类依次放入当前高度最短的列，避免小分类被大分类强行撑出巨大空白。
+  cards.forEach(card=>{
+    let target=cols[0];
+    for(const c of cols){if(c.scrollHeight<target.scrollHeight)target=c}
+    target.appendChild(card);
+  });
+  if(isAdmin){
+    const add=document.createElement("button");add.className="add-section-card glass rounded-2xl p-6 border-dashed border-2 border-slate-500/30 text-slate-400 hover:text-indigo-300";
+    add.innerHTML='<i class="fas fa-plus text-2xl mb-2"></i><div class="text-sm">添加自定义分类</div>';
+    add.onclick=()=>openSectionModal();
+    let target=cols[0];for(const c of cols){if(c.scrollHeight<target.scrollHeight)target=c}target.appendChild(add);
+  }
+}
+
+function makeSectionCard(sec){
+  const card=document.createElement("article");
+  card.className="glass rounded-2xl p-5 relative section-card";
+  card.dataset.id=sec.id;
+  if(isAdmin){card.draggable=true;card.ondragstart=e=>startDrag(e,"section",sec.id);card.ondragend=clearDragState;}
+  card.ondragover=e=>{e.preventDefault();if(isAdmin)card.classList.add("drop-active")};
+  card.ondragleave=e=>card.classList.remove("drop-active");
+  card.ondrop=e=>{card.classList.remove("drop-active");dropSection(e,sec.id)};
+  const links=sec.links.filter(l=>visible(l.private));
+  card.innerHTML=`
+    <div class="flex justify-between items-center mb-4">
+      <h2 class="font-semibold text-indigo-400 flex items-center gap-2 min-w-0">
+        ${isAdmin?'<i class="fas fa-grip-vertical text-slate-500 cursor-grab shrink-0"></i>':''}
+        <i class="fas fa-layer-group shrink-0"></i><span class="truncate">${esc(sec.title)}</span>
+        ${isPrivate(sec.private)?'<span class="private-badge rounded-full bg-indigo-500/20 text-indigo-300 text-center shrink-0" title="登录后可见">私</span>':''}
+      </h2>
+      <div class="flex gap-1.5 shrink-0 ml-2">
+        ${isAdmin?`<button onclick="openLinkModal('section','${sec.id}')" class="admin-only text-[10px] px-2 py-1 rounded bg-indigo-600/20 text-indigo-300">添加</button>
+        <button onclick="editSection('${sec.id}')" class="admin-only text-[10px] px-2 py-1 rounded bg-sky-600/20 text-sky-300"><i class="fas fa-pen"></i></button>
+        <button onclick="deleteSection('${sec.id}')" class="admin-only text-[10px] px-2 py-1 rounded bg-red-600/20 text-red-300"><i class="fas fa-trash"></i></button>`:""}
+      </div>
+    </div>
+    <div class="link-drop-zone space-y-2.5 min-h-[44px]" data-sec-id="${sec.id}">
+      ${links.length?"":"<div class=\"text-xs text-slate-500 text-center py-3\">暂无书签</div>"}
+    </div>`;
+  const wrap=card.querySelector(".link-drop-zone");
+  wrap.ondragover=e=>{e.preventDefault();if(isAdmin)wrap.classList.add("drop-active")};
+  wrap.ondragleave=e=>wrap.classList.remove("drop-active");
+  wrap.ondrop=e=>{wrap.classList.remove("drop-active");dropLink(e,sec.id,null)};
+  links.forEach(link=>wrap.appendChild(makeLinkEl(link,sec.id)));
+  return card;
+}
+function makeLinkEl(link,secId){
+  const el=document.createElement("div");
+  el.className="link-card group relative flex items-center gap-2 p-2.5 rounded-xl bg-slate-500/5 border border-slate-500/10 hover:bg-indigo-500/10";
+  el.dataset.id=link.id;
+  if(isAdmin){el.draggable=true;el.ondragstart=e=>startDrag(e,"link",secId,link.id);el.ondragend=clearDragState;}
+  el.ondragover=e=>{e.preventDefault();if(isAdmin)el.classList.add("drop-active")};
+  el.ondragleave=e=>el.classList.remove("drop-active");
+  el.ondrop=e=>{el.classList.remove("drop-active");dropLink(e,secId,link.id)};
+  let host="";try{host=new URL(link.url).hostname}catch{}
+  const icon=`<img src="https://icons.duckduckgo.com/ip3/${esc(host)}.ico" class="icon-wrap rounded object-contain bg-white/10" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" alt="">`;
+  const fallback=`<span class="icon-wrap rounded-full bg-indigo-500/20 text-indigo-300 hidden items-center justify-center font-bold">${esc(link.name.charAt(0).toUpperCase())}</span>`;
+  el.innerHTML=`
+    ${isAdmin?'<i class="fas fa-grip-vertical text-slate-600 cursor-grab text-[10px] shrink-0"></i>':''}
+    ${icon}${fallback}
+    <a href="${esc(link.url)}" target="_blank" rel="noopener noreferrer" class="min-w-0 flex-1">
+      <span class="link-title text-sm font-medium" title="${esc(link.name)}">${esc(link.name)}</span>
+    </a>
+    ${isPrivate(link.private)?'<span class="private-badge rounded-full bg-indigo-500/20 text-indigo-300 text-center shrink-0" title="登录后可见">私</span>':''}
+    ${isAdmin?`<button onclick="editLink('${secId}','${link.id}')" class="admin-only opacity-0 group-hover:opacity-100 text-slate-400 hover:text-indigo-300 text-[10px]"><i class="fas fa-pen"></i></button>
+    <button onclick="deleteLink('${secId}','${link.id}')" class="admin-only opacity-0 group-hover:opacity-100 text-slate-400 hover:text-red-400 text-[10px]"><i class="fas fa-trash"></i></button>`:""}`;
+  return el;
+}
+function renderCustom(){
+  const grid=$("nav-grid");
+  const card=document.createElement("article");card.className="glass rounded-2xl p-5 section-card";card.id="custom-card";
+  const links=customLinks.filter(visible);
+  card.innerHTML=`<div class="flex justify-between items-center mb-4"><h2 class="font-semibold text-pink-400"><i class="fas fa-folder-plus mr-2"></i>站长推荐</h2>
+    ${isAdmin?'<button onclick="openLinkModal(\'custom\')" class="admin-only text-xs px-3 py-1.5 rounded-lg bg-pink-600/20 text-pink-300">添加</button>':""}</div>
+    <div id="custom-list" class="link-drop-zone space-y-2.5 min-h-[44px]"></div>`;
+  const list=card.querySelector("#custom-list");
+  list.ondragover=e=>{e.preventDefault();if(isAdmin)list.classList.add("drop-active")};
+  list.ondragleave=e=>list.classList.remove("drop-active");
+  list.ondrop=e=>{list.classList.remove("drop-active");dropLink(e,"custom",null)};
+  if(!links.length)list.innerHTML='<div class="text-xs text-slate-500 text-center py-3">暂无书签</div>';
+  links.forEach(l=>list.appendChild(makeLinkEl(l,"custom")));
+  // 站长推荐固定放在第一列顶部（最前面）
+  const firstCol=grid.querySelector(".nav-column");
+  if(firstCol)firstCol.insertBefore(card,firstCol.firstChild);
+}
+
+function renderFriends(){
+  $("friend-links").innerHTML="";
+  friendLinks.forEach((l,i)=>{
+    const d=document.createElement("div");d.className="group relative glass rounded-xl p-2.5 text-center";
+    d.innerHTML=`<a href="${esc(l.url)}" target="_blank" class="text-xs text-slate-400 hover:text-emerald-300">${esc(l.name)}</a>
+      ${isAdmin?`<button onclick="deleteFriend(${i})" class="admin-only absolute right-1 top-1 opacity-0 group-hover:opacity-100 text-[10px] text-red-400"><i class="fas fa-times"></i></button>`:""}`;
+    $("friend-links").appendChild(d);
+  });
+}
+
+function startDrag(e,type,secId,linkId=null){
+  if(!isAdmin)return;
+  e.stopPropagation();
+  dragData={type,secId,linkId};
+  e.currentTarget.classList.add("dragging");
+  e.dataTransfer.effectAllowed="move";
+  e.dataTransfer.setData("text/plain",JSON.stringify(dragData));
+}
+function clearDragState(){document.querySelectorAll(".dragging,.drop-active").forEach(x=>x.classList.remove("dragging","drop-active"));dragData=null}
+function dropSection(e,targetId){
+  e.preventDefault();e.stopPropagation();
+  if(!isAdmin||!dragData||dragData.type!=="section")return clearDragState();
+  const from=config.dynamicSections.findIndex(x=>x.id===dragData.secId),to=config.dynamicSections.findIndex(x=>x.id===targetId);
+  if(from<0||to<0||from===to)return clearDragState();
+  const [x]=config.dynamicSections.splice(from,1);
+  config.dynamicSections.splice(to,0,x);
+  saveConfig().finally(clearDragState);
+}
+function getLinkList(secId){return secId==="custom"?customLinks:config.dynamicSections.find(x=>x.id===secId)?.links||null}
+async function moveLink(fromSecId,fromLinkId,toSecId,targetLinkId=null){
+  const fromList=getLinkList(fromSecId),toList=getLinkList(toSecId);
+  if(!fromList||!toList)return;
+  const fromIndex=fromList.findIndex(x=>x.id===fromLinkId);if(fromIndex<0)return;
+  const [moved]=fromList.splice(fromIndex,1);
+  // 同分类拖拽：移除后重新计算目标位置。
+  let insertAt=toList.length;
+  if(targetLinkId){insertAt=toList.findIndex(x=>x.id===targetLinkId);if(insertAt<0)insertAt=toList.length;}
+  if(fromSecId===toSecId && targetLinkId){
+    if(fromIndex<insertAt)insertAt--;
+  }
+  toList.splice(insertAt,0,moved);
+  if(fromSecId==="custom"||toSecId==="custom")await Promise.all([saveLinksRaw(),saveConfigRaw()]);
+  else await saveConfigRaw();
+  renderAll();
+}
+function dropLink(e,targetSecId,targetLinkId=null){
+  e.preventDefault();e.stopPropagation();
+  if(!isAdmin||!dragData||dragData.type!=="link")return clearDragState();
+  moveLink(dragData.secId,dragData.linkId,targetSecId,targetLinkId).catch(err=>{console.error(err);alert("移动书签失败，请重试")}).finally(clearDragState);
+}
+document.addEventListener("dragend",clearDragState);
+let resizeTimer=null;
+window.addEventListener("resize",()=>{clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{if(isAdmin||document.visibilityState!=="hidden")renderAll()},180)});
+
+async function saveConfigRaw(){
+  await api("/api/config",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(config)});
+}
+async function saveLinksRaw(){
+  await api("/api/links",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(customLinks)});
+}
+async function saveConfig(){await saveConfigRaw();renderAll()}
+async function saveLinks(){await saveLinksRaw();renderAll()}
+
+function openLinkModal(target,secId=""){
+  if(!isAdmin)return alert("请先登录管理员");
+  currentTarget=target;$("edit-id").value="";$("edit-section").value=secId;
+  $("link-name").value="";$("link-url").value="";$("link-private").checked=false;
+  $("link-modal-title").innerText="添加书签";
+  $("link-modal").classList.remove("hidden");$("link-modal").classList.add("flex");
+}
+function closeLinkModal(){$("link-modal").classList.add("hidden");$("link-modal").classList.remove("flex")}
+function editLink(secId,id){
+  const arr=secId==="custom"?customLinks:config.dynamicSections.find(s=>s.id===secId)?.links||[];
+  const l=arr.find(x=>x.id===id);if(!l)return;
+  currentTarget=secId==="custom"?"custom":"section";
+  $("edit-section").value=secId;$("edit-id").value=id;
+  $("link-name").value=l.name;$("link-url").value=l.url;
+  $("link-private").checked=isPrivate(l.private);
+  $("link-modal-title").innerText="编辑书签";
+  $("link-modal").classList.remove("hidden");$("link-modal").classList.add("flex");
+}
+async function saveLink(){
+  let name=$("link-name").value.trim(),url=$("link-url").value.trim();
+  if(!name||!url){alert("请完整填写名称和网址");return}
+  if(!/^https?:\/\//i.test(url))url="https://"+url;
+  const id=$("edit-id").value,secId=$("edit-section").value,l={id:id||uid(),name,url,private:$("link-private").checked};
+  try{
+    if(currentTarget==="custom"){
+      if(id){const i=customLinks.findIndex(x=>x.id===id);customLinks[i]=l}else customLinks.push(l);await saveLinks();
+    }else{
+      const sec=config.dynamicSections.find(s=>s.id===secId);if(!sec)return;
+      if(id){const i=sec.links.findIndex(x=>x.id===id);sec.links[i]=l}else sec.links.push(l);await saveConfig();
+    }
+    closeLinkModal();
+    toast("已保存","success");
+  }catch(e){toast("保存失败："+e.message,"error")}
+}
+async function deleteLink(secId,id){
+  if(!confirm("确定删除这个书签吗？"))return;
+  try{
+    if(secId==="custom"){customLinks=customLinks.filter(x=>x.id!==id);await saveLinks()}
+    else{const s=config.dynamicSections.find(x=>x.id===secId);if(s){s.links=s.links.filter(x=>x.id!==id);await saveConfig()}}
+    toast("已删除","success");
+  }catch(e){toast("删除失败："+e.message,"error")}
+}
+
+function openSectionModal(id=""){
+  if(!isAdmin)return; $("section-id").value=id;$("section-name").value="";$("section-private").checked=false;
+  if(id){const s=config.dynamicSections.find(x=>x.id===id);$("section-name").value=s.title;$("section-private").checked=isPrivate(s.private);$("section-modal-title").innerText="编辑分类"}
+  else $("section-modal-title").innerText="添加分类";
+  $("section-modal").classList.remove("hidden");$("section-modal").classList.add("flex");
+}
+function closeSectionModal(){$("section-modal").classList.add("hidden");$("section-modal").classList.remove("flex")}
+function editSection(id){openSectionModal(id)}
+async function saveSection(){
+  const title=$("section-name").value.trim();
+  if(!title){alert("请输入分类名称");return}
+  const id=$("section-id").value;
+  try{
+    if(id){const s=config.dynamicSections.find(x=>x.id===id);s.title=title;s.private=$("section-private").checked}
+    else config.dynamicSections.push({id:uid(),title,private:$("section-private").checked,links:[]});
+    await saveConfig();closeSectionModal();
+    toast("已保存","success");
+  }catch(e){toast("保存失败："+e.message,"error")}
+}
+async function deleteSection(id){
+  if(!confirm("删除分类后，其中的所有书签也会被删除，确定继续吗？"))return;
+  try{
+    config.dynamicSections=config.dynamicSections.filter(x=>x.id!==id);await saveConfig();
+    toast("已删除","success");
+  }catch(e){toast("删除失败："+e.message,"error")}
+}
+
+function openFriendModal(){
+  $("link-name").value="";$("link-url").value="";$("link-private").checked=false;currentTarget="friend";
+  $("link-modal-title").innerText="添加友情链接";
+  $("link-modal").classList.remove("hidden");$("link-modal").classList.add("flex");
+}
+const oldOpen=openLinkModal;
+openLinkModal=function(target,secId=""){if(target==="friend"){if(!isAdmin)return alert("请先登录管理员");openFriendModal();return}oldOpen(target,secId)}
+async function saveFriend(){
+  let n=$("link-name").value.trim(),u=$("link-url").value.trim();
+  if(!n||!u){alert("请完整填写名称和网址");return}
+  if(!/^https?:\/\//i.test(u))u="https://"+u;
+  friendLinks.push({id:uid(),name:n,url:u});
+  try{await api("/api/friend-links",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(friendLinks)})}catch{}
+  renderFriends();closeLinkModal();
+}
+const oldSaveLink=saveLink;
+saveLink=async function(){
+  if(currentTarget==="friend"){await saveFriend();return}
+  await oldSaveLink();
+}
+async function deleteFriend(i){
+  if(!confirm("确定删除这个友情链接吗？"))return;
+  friendLinks.splice(i,1);
+  try{await api("/api/friend-links",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(friendLinks)})}catch{}
+  renderFriends();
+}
+
+async function login(){
+  if(isAdmin)return;
+  const pwd=prompt("请输入管理员密码：");if(pwd===null)return;
+  try{
+    const authR=await api("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password:pwd})});
+    const authData=await authR.json();
+    // POST 登录成功返回 {success:true}，GET 认证检查才返回 {authenticated:true}
+    if(!authData.success)throw new Error("密码错误");
+    isAdmin=true;
+    // 直接从服务端加载数据，不走 GET /api/auth 再校验，避免覆盖 isAdmin=true
+    try{config=await (await api("/api/config")).json()}catch{config={wallpaper:"",dynamicSections:[]}}
+    try{customLinks=await (await api("/api/links")).json()}catch{customLinks=[]}
+    try{const fr=await api("/api/friend-links");friendLinks=await fr.json()}catch{
+      try{friendLinks=JSON.parse(localStorage.getItem("nav_friend_links")||"[]")}catch{friendLinks=[]}
+    }
+    normalizeData();
+    applyAdminUI();
+    renderAll();
+    $("panel").classList.add("hidden");
+  }catch(e){
+    if(e.message==="密码错误")alert("密码错误");
+    else{alert("登录失败，请重试："+e.message);isAdmin=false}
+  }
+}
+async function logout(){await api("/api/auth",{method:"DELETE"});isAdmin=false;await loadAll();$("panel").classList.add("hidden")}
+async function changePassword(){
+  const p=$("new-pwd").value.trim();if(!p)return;
+  config.adminPwd=p;delete config.adminPwd; // 密码通过专用接口保存
+  try{await api("/api/config",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({adminPwd:p})});$("new-pwd").value="";alert("密码修改成功")}
+  catch{alert("修改失败，请确认仍处于登录状态")}
+}
+function togglePanel(e){e.stopPropagation();$("panel").classList.toggle("hidden")}
+document.addEventListener("click",()=>{$("panel").classList.add("hidden")});
+
+async function saveWallpaper(){const u=$("bg-url").value.trim();if(!u)return;config.wallpaper=u;await saveConfig();applyBg(u);$("panel").classList.add("hidden")}
+async function clearWallpaper(){config.wallpaper="";await saveConfig();document.body.style.backgroundImage="";document.body.classList.remove("has-bg")}
+function applyBg(u){if(!u)return;document.body.style.backgroundImage=`url("${u.replace(/"/g,'\\"')}")`;document.body.style.backgroundSize="cover";document.body.style.backgroundPosition="center";document.body.style.backgroundAttachment="fixed";document.body.classList.add("has-bg");$("bg-url").value=u}
+
+function setLang(l){localStorage.setItem("nav_lang",l)}
+function setTheme(t){document.body.classList.remove("theme-light","theme-dark");document.body.classList.add(t);localStorage.setItem("nav_theme",t)}
+function changeEngine(){const [action,name]=engines[$("engine").value];$("search-form").action=action;$("search").name=name}
+
+function updateClock(){
+  const now=new Date(),h=now.getHours();
+  $("clock").innerText=now.toLocaleTimeString("zh-CN",{hour12:false});
+  const y=now.getFullYear(),m=now.getMonth()+1,d=now.getDate(),week=["日","一","二","三","四","五","六"][now.getDay()];
+  let lunarText="";
+  try{const lunar=Solar.fromYmd(y,m,d).getLunar();lunarText=`农历${lunar.getMonthInChinese()}月${lunar.getDayInChinese()} · ${lunar.getYearShengXiao()}年${lunar.getJieQi()?` · ${lunar.getJieQi()}`:""}`}catch{}
+  $("date-line").innerText=`${y}年${String(m).padStart(2,"0")}月${String(d).padStart(2,"0")}日 · 星期${week} · ${lunarText}`;
+  const fest=festivalText(y,m,d);
+  const greet=fest||(["凌晨了，早点休息。","早上好，新的一天开始了。","上午好，保持专注。","中午好，记得按时吃饭。","下午好，继续加油。","傍晚好，辛苦了。","晚上好，享受属于自己的时间。"][h<5?0:h<8?1:h<12?2:h<14?3:h<18?4:h<20?5:6]);
+  $("greeting").innerText=greet;
+}
+function festivalText(y,m,d){
+  const md=`${m}-${d}`;
+  const solar={"1-1":"🎉 元旦快乐！","3-8":"🌷 三八妇女节快乐！","4-1":"🌱 愚人节快乐！","5-1":"🛠️ 五一劳动节快乐！","6-1":"🎈 六一儿童节快乐！","10-1":"🇨🇳 国庆节快乐！","12-25":"🎄 圣诞快乐！"};
+  if(solar[md])return solar[md];
+  try{
+    const l=Solar.fromYmd(y,m,d).getLunar(),lm=l.getMonth(),ld=l.getDay();
+    const lunar={"1-1":"🧧 新年快乐！","1-15":"🏮 元宵节快乐！","5-5":"🎋 端午安康！","7-7":"💗 七夕快乐！","8-15":"🌕 中秋快乐！","9-9":"🍂 重阳安康！"};
+    return lunar[`${lm}-${ld}`]||"";
+  }catch{return ""}
+}
+const weatherCodes={
+  0:{icon:"☀️",desc:"晴朗"},1:{icon:"🌤️",desc:"大部晴朗"},2:{icon:"⛅",desc:"多云"},3:{icon:"☁️",desc:"阴天"},
+  45:{icon:"🌫️",desc:"雾"},48:{icon:"🌫️",desc:"雾凇"},
+  51:{icon:"🌦️",desc:"毛毛雨"},53:{icon:"🌦️",desc:"中雨"},55:{icon:"🌧️",desc:"大雨"},
+  56:{icon:"🧊",desc:"冻雨"},57:{icon:"🧊",desc:"强冻雨"},
+  61:{icon:"🌧️",desc:"小雨"},63:{icon:"🌧️",desc:"中雨"},65:{icon:"🌧️",desc:"大雨"},
+  66:{icon:"🧊",desc:"冻雨"},67:{icon:"🧊",desc:"强冻雨"},
+  71:{icon:"🌨️",desc:"小雪"},73:{icon:"🌨️",desc:"中雪"},75:{icon:"❄️",desc:"大雪"},
+  77:{icon:"❄️",desc:"冰粒"},
+  80:{icon:"🌦️",desc:"阵雨"},81:{icon:"🌧️",desc:"中阵雨"},82:{icon:"⛈️",desc:"大阵雨"},
+  85:{icon:"🌨️",desc:"阵雪"},86:{icon:"❄️",desc:"强阵雪"},
+  95:{icon:"⛈️",desc:"雷暴"},96:{icon:"⛈️",desc:"雷暴冰雹"},99:{icon:"⛈️",desc:"强雷暴冰雹"}
+};
+async function fetchWeather(){
+  try{
+    const p=await (await fetch("https://ipapi.co/json/")).json();
+    const w=await (await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${p.latitude}&longitude=${p.longitude}&current_weather=true`)).json();
+    const code=w.current_weather.weathercode;
+    const info=weatherCodes[code]||{icon:"🌡️",desc:"未知"};
+    $("weather").innerText=`${info.icon} ${p.city||""} · ${Math.round(w.current_weather.temperature)}°C ${info.desc}`;
+  }catch{$("weather").innerText="⚠️ 天气获取失败"}
+}
+document.body.classList.add(localStorage.getItem("nav_theme")||"theme-dark");
+setInterval(updateClock,1000);updateClock();fetchWeather();loadAll();
+</script>
+</body>
+</html>
