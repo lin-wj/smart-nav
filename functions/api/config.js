@@ -1,66 +1,59 @@
-import { requireAdmin, json } from "../lib/auth.js";
+// Cloudflare Pages Function: /api/config
+// GET：未登录只返回公开配置；登录后返回完整分类与书签。
+// POST：仅管理员可修改配置。
+const COOKIE = "nav_admin_session";
+const CONFIG_KEY = "site_config";
+const SESSION_TTL = 60 * 60 * 24 * 7;
 
-function sanitizeForPublic(config) {
-    const data = config || {};
-    const sections = Array.isArray(data.dynamicSections) ? data.dynamicSections : [];
+function json(data, status=200, headers={}) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: {"Content-Type":"application/json; charset=utf-8", ...headers}
+  });
+}
+function isPrivate(v){ return v === true || v === "true"; }
 
-    return {
-        wallpaper: typeof data.wallpaper === "string" ? data.wallpaper : "",
-        dynamicSections: sections
-            .filter(section => section && section.private !== true)
-            .map(section => ({
-                id: String(section.id),
-                title: String(section.title || ""),
-                private: false,
-                links: Array.isArray(section.links)
-                    ? section.links.filter(link => link && link.private !== true).map(link => ({
-                        name: String(link.name || ""),
-                        url: String(link.url || ""),
-                        private: false
-                    }))
-                    : []
-            }))
-    };
+async function isAdmin(request, env){
+  const c = request.headers.get("Cookie") || "";
+  const m = c.match(new RegExp("(^|;\\s*)"+COOKIE+"=([^;]+)"));
+  if(!m) return false;
+  return !!(await env.NAV_DB.get("session:"+m[2]));
+}
+function publicConfig(c){
+  return {
+    wallpaper: c.wallpaper || "",
+    dynamicSections: (c.dynamicSections || []).filter(s=>!isPrivate(s.private)).map(s=>({
+      id:s.id,title:s.title,private:false,
+      links:(s.links||[]).filter(l=>!isPrivate(l.private)).map(l=>({id:l.id,name:l.name,url:l.url,private:false}))
+    }))
+  };
 }
 
-export async function onRequest(context) {
-    const { request, env } = context;
+export async function onRequest(context){
+  const {request,env}=context;
+  let raw=await env.NAV_DB.get(CONFIG_KEY);
+  let c={wallpaper:"",dynamicSections:[],adminPwd:"admin888"};
+  try{if(raw)c={...c,...JSON.parse(raw)}}catch{}
+  const admin=await isAdmin(request,env);
 
-    if (!env.NAV_DB) return json({ success: false, message: "KV binding NAV_DB is missing." }, 500);
+  if(request.method==="GET") return json(admin ? {
+    wallpaper:c.wallpaper||"",
+    dynamicSections:c.dynamicSections||[]
+  } : publicConfig(c));
 
-    if (request.method === "GET") {
-        const config = await env.NAV_DB.get("site_config", "json");
-        const admin = await requireAdmin(request, env);
+  if(request.method!=="POST") return new Response("Method Not Allowed",{status:405});
 
-        // 管理员拿到完整配置；普通访客永远拿不到 adminPwd，也拿不到私密分类/书签。
-        return json(admin ? (config || {}) : sanitizeForPublic(config || {}));
-    }
+  if(!admin) return json({error:"Unauthorized"},401);
 
-    if (request.method === "POST") {
-        const admin = await requireAdmin(request, env);
-        if (!admin) return json({ success: false, message: "Unauthorized." }, 401);
+  let body={};try{body=await request.json()}catch{return json({error:"Bad JSON"},400)}
+  // 修改密码使用 {adminPwd:"..."}，不把密码返回给浏览器。
+  if(typeof body.adminPwd==="string"){
+    if(body.adminPwd.trim().length<6)return json({error:"密码至少6位"},400);
+    c.adminPwd=body.adminPwd.trim();
+  }
+  if("wallpaper" in body)c.wallpaper=String(body.wallpaper||"");
+  if(Array.isArray(body.dynamicSections))c.dynamicSections=body.dynamicSections;
 
-        try {
-            const body = await request.json();
-            const current = (await env.NAV_DB.get("site_config", "json")) || {};
-
-            // 前端即使误删字段，也不会把管理员密码清空。
-            const next = {
-                ...current,
-                wallpaper: typeof body.wallpaper === "string" ? body.wallpaper : (current.wallpaper || ""),
-                dynamicSections: Array.isArray(body.dynamicSections) ? body.dynamicSections : (current.dynamicSections || [])
-            };
-
-            if (typeof body.adminPwd === "string" && body.adminPwd.trim()) {
-                next.adminPwd = body.adminPwd.trim();
-            }
-
-            await env.NAV_DB.put("site_config", JSON.stringify(next));
-            return json({ success: true });
-        } catch {
-            return json({ success: false, message: "Invalid JSON." }, 400);
-        }
-    }
-
-    return json({ success: false, message: "Method not allowed." }, 405);
+  await env.NAV_DB.put(CONFIG_KEY,JSON.stringify(c));
+  return json({success:true});
 }

@@ -1,77 +1,40 @@
-import {
-    SESSION_PREFIX,
-    SESSION_TTL,
-    getAdminSession,
-    json,
-    responseWithCookie,
-    setSessionCookie,
-    clearSessionCookie
-} from "../lib/auth.js";
+// Cloudflare Pages Function: /api/auth
+// 管理员密码保存在 KV；登录成功后只发 HttpOnly Session Cookie。
+// 浏览器永远不会拿到管理员密码。
+const COOKIE="nav_admin_session";
+const CONFIG_KEY="site_config";
+const TTL=60*60*24*7;
 
-const DEFAULT_PASSWORD = "admin888";
-
-async function getConfig(env) {
-    const data = await env.NAV_DB.get("site_config", "json");
-    return data || {};
+function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{"Content-Type":"application/json; charset=utf-8"}})}
+function getCookie(request){
+  const c=request.headers.get("Cookie")||"",m=c.match(new RegExp("(^|;\\s*)"+COOKIE+"=([^;]+)"));
+  return m?m[2]:null;
 }
-
-function randomToken() {
-    const bytes = new Uint8Array(32);
-    crypto.getRandomValues(bytes);
-    return Array.from(bytes, b => b.toString(16).padStart(2, "0")).join("");
+async function getConfig(env){
+  let c={};try{c=JSON.parse((await env.NAV_DB.get(CONFIG_KEY))||"{}")}catch{}
+  return c;
 }
-
-export async function onRequest(context) {
-    const { request, env } = context;
-
-    if (!env.NAV_DB) {
-        return json({ success: false, message: "KV binding NAV_DB is missing." }, 500);
-    }
-
-    if (request.method === "GET") {
-        const session = await getAdminSession(request, env);
-        return json({ authenticated: !!session });
-    }
-
-    if (request.method === "POST") {
-        try {
-            const body = await request.json();
-            const password = String(body?.password ?? "");
-            const config = await getConfig(env);
-            const validPassword = config.adminPwd || DEFAULT_PASSWORD;
-
-            if (!password || password !== validPassword) {
-                return json({ success: false, message: "Invalid password." }, 401);
-            }
-
-            const token = randomToken();
-            await env.NAV_DB.put(
-                `${SESSION_PREFIX}${token}`,
-                JSON.stringify({ admin: true, createdAt: Date.now() }),
-                { expirationTtl: SESSION_TTL }
-            );
-
-            return responseWithCookie(
-                { success: true, authenticated: true },
-                200,
-                setSessionCookie(token)
-            );
-        } catch {
-            return json({ success: false, message: "Invalid request." }, 400);
-        }
-    }
-
-    if (request.method === "DELETE") {
-        const session = await getAdminSession(request, env);
-        if (session?.token) {
-            await env.NAV_DB.delete(`${SESSION_PREFIX}${session.token}`);
-        }
-        return responseWithCookie(
-            { success: true, authenticated: false },
-            200,
-            `nav_admin_session=; ${clearSessionCookie()}`
-        );
-    }
-
-    return json({ success: false, message: "Method not allowed." }, 405);
+export async function onRequest({request,env}){
+  if(request.method==="GET"){
+    const token=getCookie(request);
+    return json({authenticated:!!(token&&await env.NAV_DB.get("session:"+token))});
+  }
+  if(request.method==="POST"){
+    let body;try{body=await request.json()}catch{return json({error:"Bad JSON"},400)}
+    const c=await getConfig(env),pwd=c.adminPwd||"admin888";
+    if(String(body.password||"")!==pwd)return json({error:"Invalid password"},401);
+    const token=crypto.randomUUID();
+    await env.NAV_DB.put("session:"+token,"1",{expirationTtl:TTL});
+    return json({success:true},200,{
+      "Set-Cookie":`${COOKIE}=${token}; Max-Age=${TTL}; Path=/; HttpOnly; Secure; SameSite=Lax`
+    });
+  }
+  if(request.method==="DELETE"){
+    const token=getCookie(request);
+    if(token)await env.NAV_DB.delete("session:"+token);
+    return new Response(null,{status:204,headers:{
+      "Set-Cookie":`${COOKIE}=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Lax`
+    }});
+  }
+  return new Response("Method Not Allowed",{status:405});
 }

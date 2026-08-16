@@ -1,39 +1,27 @@
-import { requireAdmin, json } from "../lib/auth.js";
+// Cloudflare Pages Function: /api/links
+const COOKIE="nav_admin_session";
+const KEY="custom_links";
 
-function sanitizeLinks(links) {
-    return (Array.isArray(links) ? links : [])
-        .filter(link => link && link.private !== true)
-        .map(link => ({
-            name: String(link.name || ""),
-            url: String(link.url || ""),
-            private: false
-        }));
+function json(data,status=200){
+  return new Response(JSON.stringify(data),{status,headers:{"Content-Type":"application/json; charset=utf-8"}});
 }
-
-export async function onRequest(context) {
-    const { request, env } = context;
-
-    if (!env.NAV_DB) return json({ success: false, message: "KV binding NAV_DB is missing." }, 500);
-
-    if (request.method === "GET") {
-        const links = await env.NAV_DB.get("custom_links", "json");
-        const admin = await requireAdmin(request, env);
-        return json(admin ? (links || []) : sanitizeLinks(links));
-    }
-
-    if (request.method === "POST") {
-        const admin = await requireAdmin(request, env);
-        if (!admin) return json({ success: false, message: "Unauthorized." }, 401);
-
-        try {
-            const body = await request.json();
-            if (!Array.isArray(body)) return json({ success: false, message: "Links must be an array." }, 400);
-            await env.NAV_DB.put("custom_links", JSON.stringify(body));
-            return json({ success: true });
-        } catch {
-            return json({ success: false, message: "Invalid JSON." }, 400);
-        }
-    }
-
-    return json({ success: false, message: "Method not allowed." }, 405);
+async function admin(request,env){
+  const c=request.headers.get("Cookie")||"";
+  const m=c.match(new RegExp("(^|;\\s*)"+COOKIE+"=([^;]+)"));
+  return !!(m && await env.NAV_DB.get("session:"+m[2]));
+}
+function pub(arr){return (arr||[]).filter(x=>x.private!==true&&x.private!=="true")}
+export async function onRequest({request,env}){
+  let raw=await env.NAV_DB.get(KEY), arr=[];
+  try{if(raw)arr=JSON.parse(raw)}catch{}
+  const isAdmin=await admin(request,env);
+  if(request.method==="GET")return json(isAdmin?arr:pub(arr));
+  if(!isAdmin)return json({error:"Unauthorized"},401);
+  if(request.method!=="POST")return new Response("Method Not Allowed",{status:405});
+  let body;try{body=await request.json()}catch{return json({error:"Bad JSON"},400)}
+  if(!Array.isArray(body))return json({error:"Expected array"},400);
+  // 保留旧数据兼容，同时给新书签补 id。
+  body=body.map(x=>({id:x.id||crypto.randomUUID(),name:String(x.name||"未命名"),url:String(x.url||"#"),private:x.private===true}));
+  await env.NAV_DB.put(KEY,JSON.stringify(body));
+  return json({success:true});
 }
