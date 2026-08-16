@@ -30,6 +30,27 @@ body:not(.is-admin) .admin-only{display:none!important}
 </head>
 <body class="theme-dark font-sans antialiased">
 
+<!-- Toast 容器 -->
+<div id="toast-container" style="position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:9999;pointer-events:none;"></div>
+
+<!-- Toast 函数 -->
+<script>
+function showToast(msg, type='info'){
+  const colors={success:'rgba(16,185,129,.9)',error:'rgba(239,68,68,.9)',info:'rgba(99,102,241,.9)'};
+  const el=document.createElement('div');
+  el.style.cssText='padding:10px 20px;border-radius:10px;font-size:13px;color:#fff;background:'+colors[type]+';box-shadow:0 8px 24px rgba(0,0,0,.25);animation:toastIn .25s ease,toastOut .3s ease 2.5s forwards;max-width:320px;text-align:center;margin-bottom:8px;';
+  el.textContent=msg;
+  document.getElementById('toast-container').appendChild(el);
+  setTimeout(()=>el.remove(),3000);
+}
+const _st=window.showToast;
+window.showToast=function(msg,type){_st(msg,type);};
+</script>
+<style>
+@keyframes toastIn{from{opacity:0;transform:translateX(-50%) translateY(12px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+@keyframes toastOut{from{opacity:1}to{opacity:0;transform:translateX(-50%) translateY(8px)}}
+</style>
+
 <!-- 右上角设置 -->
 <div class="fixed top-4 right-4 z-50">
   <button onclick="togglePanel(event)" class="glass w-10 h-10 rounded-xl text-slate-300 hover:text-indigo-400" title="设置">
@@ -277,8 +298,10 @@ function renderCustom(){
   list.ondrop=e=>{list.classList.remove("drop-active");dropLink(e,"custom",null)};
   if(!links.length)list.innerHTML='<div class="text-xs text-slate-500 text-center py-3">暂无书签</div>';
   links.forEach(l=>list.appendChild(makeLinkEl(l,"custom")));
-  // 站长推荐也参与瀑布流，不再强制占据第一列第一张卡片。
-  const cols=[...grid.querySelectorAll(".nav-column")];let target=cols[0];for(const c of cols){if(c.scrollHeight<target.scrollHeight)target=c}target.appendChild(card);
+  // 站长推荐始终置于最顶部（第一列最前面）
+  const cols=[...grid.querySelectorAll(".nav-column")];
+  if(cols[0]) cols[0].insertBefore(card, cols[0].firstChild);
+  else grid.appendChild(card);
 }
 
 function renderFriends(){
@@ -329,7 +352,7 @@ async function moveLink(fromSecId,fromLinkId,toSecId,targetLinkId=null){
 function dropLink(e,targetSecId,targetLinkId=null){
   e.preventDefault();e.stopPropagation();
   if(!isAdmin||!dragData||dragData.type!=="link")return clearDragState();
-  moveLink(dragData.secId,dragData.linkId,targetSecId,targetLinkId).catch(err=>{console.error(err);alert("移动书签失败，请重试")}).finally(clearDragState);
+  moveLink(dragData.secId,dragData.linkId,targetSecId,targetLinkId).catch(err=>{console.error(err);showToast("移动书签失败，请重试","error")}).finally(clearDragState);
 }
 document.addEventListener("dragend",clearDragState);
 let resizeTimer=null;
@@ -341,11 +364,11 @@ async function saveConfigRaw(){
 async function saveLinksRaw(){
   await api("/api/links",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(customLinks)});
 }
-async function saveConfig(){await saveConfigRaw();renderAll()}
-async function saveLinks(){await saveLinksRaw();renderAll()}
+async function saveConfig(){try{await saveConfigRaw();renderAll();showToast("保存成功","success")}catch(e){console.error(e);showToast("保存失败","error")}}
+async function saveLinks(){try{await saveLinksRaw();renderAll();showToast("保存成功","success")}catch(e){console.error(e);showToast("保存失败","error")}}
 
 function openLinkModal(target,secId=""){
-  if(!isAdmin)return alert("请先登录管理员");
+  if(!isAdmin)return showToast("请先登录管理员","error");
   currentTarget=target;$("edit-id").value="";$("edit-section").value=secId;$("link-name").value="";$("link-url").value="";$("link-private").checked=false;
   $("link-modal-title").innerText="添加书签";$("link-modal").classList.remove("hidden");$("link-modal").classList.add("flex");
 }
@@ -356,7 +379,7 @@ function editLink(secId,id){
   $("link-modal-title").innerText="编辑书签";$("link-modal").classList.remove("hidden");$("link-modal").classList.add("flex");
 }
 async function saveLink(){
-  let name=$("link-name").value.trim(),url=$("link-url").value.trim();if(!name||!url)return alert("请完整填写名称和网址");
+  let name=$("link-name").value.trim(),url=$("link-url").value.trim();if(!name||!url)return showToast("请完整填写名称和网址","error");
   if(!/^https?:\/\//i.test(url))url="https://"+url;
   const id=$("edit-id").value,secId=$("edit-section").value,l={id:id||uid(),name,url,private:$("link-private").checked};
   if(currentTarget==="custom"){
@@ -398,7 +421,7 @@ function openFriendModal(){
   $("link-modal-title").innerText="添加友情链接";$("link-modal").classList.remove("hidden");$("link-modal").classList.add("flex");
 }
 const oldOpen=openLinkModal;
-openLinkModal=function(target,secId=""){if(target==="friend"){if(!isAdmin)return alert("请先登录管理员");openFriendModal();return}oldOpen(target,secId)}
+openLinkModal=function(target,secId=""){if(target==="friend"){if(!isAdmin)return showToast("请先登录管理员","error");openFriendModal();return}oldOpen(target,secId)}
 async function saveFriend(){
   let n=$("link-name").value.trim(),u=$("link-url").value.trim();if(!n||!u)return;
   if(!/^https?:\/\//i.test(u))u="https://"+u;
@@ -414,21 +437,24 @@ function deleteFriend(i){const a=JSON.parse(localStorage.getItem("nav_friend_lin
 async function login(){
   if(isAdmin)return;
   const pwd=prompt("请输入管理员密码：");if(pwd===null)return;
-  try{await api("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password:pwd})});isAdmin=true;await loadAll();$("panel").classList.add("hidden");}
-  catch{alert("密码错误")}
+  try{
+    await api("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password:pwd})});
+    isAdmin=true;await loadAll();
+    $("panel").classList.add("hidden");
+  }catch(e){console.error(e);showToast("密码错误","error")}
 }
-async function logout(){await api("/api/auth",{method:"DELETE"});isAdmin=false;await loadAll();$("panel").classList.add("hidden")}
+async function logout(){try{await api("/api/auth",{method:"DELETE"});isAdmin=false;await loadAll();$("panel").classList.add("hidden");showToast("已退出登录","success")}catch(e){console.error(e)}}
 async function changePassword(){
   const p=$("new-pwd").value.trim();if(!p)return;
   config.adminPwd=p;delete config.adminPwd; // 密码通过专用接口保存
-  try{await api("/api/config",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({adminPwd:p})});$("new-pwd").value="";alert("密码修改成功")}
-  catch{alert("修改失败，请确认仍处于登录状态")}
+  try{await api("/api/config",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({adminPwd:p})});$("new-pwd").value="";showToast("密码修改成功","success")}
+  catch(e){console.error(e);showToast("修改失败，请确认仍处于登录状态","error")}
 }
 function togglePanel(e){e.stopPropagation();$("panel").classList.toggle("hidden")}
 document.addEventListener("click",()=>{$("panel").classList.add("hidden")});
 
-async function saveWallpaper(){const u=$("bg-url").value.trim();if(!u)return;config.wallpaper=u;await saveConfig();applyBg(u);$("panel").classList.add("hidden")}
-async function clearWallpaper(){config.wallpaper="";await saveConfig();document.body.style.backgroundImage="";document.body.classList.remove("has-bg")}
+async function saveWallpaper(){const u=$("bg-url").value.trim();if(!u)return;config.wallpaper=u;await saveConfig();applyBg(u);$("panel").classList.add("hidden");showToast("壁纸保存成功","success")}
+async function clearWallpaper(){config.wallpaper="";await saveConfig();document.body.style.backgroundImage="";document.body.classList.remove("has-bg");showToast("壁纸已清除","success")}
 function applyBg(u){if(!u)return;document.body.style.backgroundImage=`url("${u.replace(/"/g,'\\"')}")`;document.body.style.backgroundSize="cover";document.body.style.backgroundPosition="center";document.body.style.backgroundAttachment="fixed";document.body.classList.add("has-bg");$("bg-url").value=u}
 
 function setLang(l){localStorage.setItem("nav_lang",l)}
@@ -456,11 +482,14 @@ function festivalText(y,m,d){
     return lunar[`${lm}-${ld}`]||"";
   }catch{return ""}
 }
+const WEATHER_ICONS={0:"☀️",1:"🌤️",2:"⛅",3:"☁️",45:"🌫️",48:"🌫️",51:"🌦️",53:"🌦️",55:"🌧️",56:"🌧️",57:"🌧️",61:"🌧️",63:"🌧️",65:"🌧️",66:"🌧️",67:"🌧️",71:"🌨️",73:"❄️",75:"❄️",77:"❄️",80:"🌦️",81:"🌧️",82:"🌧️",85:"🌨️",86:"🌨️",95:"⛈️",96:"⛈️",99:"⛈️"};
 async function fetchWeather(){
   try{
     const p=await (await fetch("https://ipapi.co/json/")).json();
     const w=await (await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${p.latitude}&longitude=${p.longitude}&current_weather=true`)).json();
-    $("weather").innerText=`${p.city||""} · ${Math.round(w.current_weather.temperature)}°C`;
+    const code=w.current_weather.weathercode??"";
+    const icon=WEATHER_ICONS[code]||"🌡️";
+    $("weather").innerText=`${icon} ${p.city||""} · ${Math.round(w.current_weather.temperature)}°C`;
   }catch{$("weather").innerText="天气获取失败"}
 }
 document.body.classList.add(localStorage.getItem("nav_theme")||"theme-dark");
