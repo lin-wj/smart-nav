@@ -132,7 +132,70 @@ function setLang(l){localStorage.setItem("nav_lang",l)}
 function setTheme(t){document.body.classList.remove("theme-light","theme-dark");document.body.classList.add(t);localStorage.setItem("nav_theme",t)}
 function changeEngine(){const [action,name]=engines[$("engine").value];$("search-form").action=action;$("search").name=name}
 async function confirmAction(msg){return new Promise(resolve=>{const el=document.createElement("div");el.className="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm items-center justify-center p-4 flex";el.innerHTML=`<div class="w-full max-w-sm glass rounded-2xl p-6"><p class="text-sm text-slate-200 mb-5">${msg}</p><div class="flex justify-end gap-2"><button id="ca-cancel" class="px-4 py-2 rounded-lg bg-slate-700 text-xs">取消</button><button id="ca-ok" class="px-4 py-2 rounded-lg bg-red-600 text-xs">确认</button></div></div>`;document.body.appendChild(el);el.querySelector("#ca-ok").onclick=()=>{document.body.removeChild(el);resolve(true)};el.querySelector("#ca-cancel").onclick=()=>{document.body.removeChild(el);resolve(false)};el.addEventListener("click",e=>{if(e.target===el){document.body.removeChild(el);resolve(false)}})})}
-async function askPassword(msg){return new Promise(resolve=>{const el=document.createElement("div");el.className="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm items-center justify-center p-4 flex";el.innerHTML=`<div class="w-full max-w-sm glass rounded-2xl p-6"><p class="text-sm text-slate-200 mb-4">${msg}</p><input id="pw-input" type="password" class="w-full bg-slate-800 rounded-xl px-3 py-2.5 text-sm outline-none" autofocus><div class="flex justify-end gap-2 mt-4"><button id="pw-cancel" class="px-4 py-2 rounded-lg bg-slate-700 text-xs">取消</button><button id="pw-ok" class="px-4 py-2 rounded-lg bg-indigo-600 text-xs">确定</button></div></div>`;document.body.appendChild(el);const inp=el.querySelector("#pw-input");inp.focus();el.querySelector("#pw-ok").onclick=()=>resolve(inp.value);el.querySelector("#pw-cancel").onclick=()=>resolve(null);inp.addEventListener("keydown",e=>{if(e.key==="Enter")resolve(inp.value);if(e.key==="Escape")resolve(null)});el.addEventListener("click",e=>{if(e.target===el)resolve(null)})})}
+async function askPassword(msg){
+  return new Promise(resolve=>{
+    const el=document.createElement("div");
+    el.className="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm items-center justify-center p-4 flex";
+
+    el.innerHTML=`
+      <div class="w-full max-w-sm glass rounded-2xl p-6">
+        <p class="text-sm text-slate-200 mb-4">${msg}</p>
+        <input id="pw-input" type="password"
+          class="w-full bg-slate-800 rounded-xl px-3 py-2.5 text-sm outline-none"
+          autofocus>
+
+        <div class="flex justify-end gap-2 mt-4">
+          <button id="pw-cancel"
+            class="px-4 py-2 rounded-lg bg-slate-700 text-xs">
+            取消
+          </button>
+
+          <button id="pw-ok"
+            class="px-4 py-2 rounded-lg bg-indigo-600 text-xs">
+            确定
+          </button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(el);
+
+    const inp=el.querySelector("#pw-input");
+
+    function close(value){
+      if(el.parentNode){
+        el.parentNode.removeChild(el);
+      }
+      resolve(value);
+    }
+
+    inp.focus();
+
+    el.querySelector("#pw-ok").onclick=()=>{
+      close(inp.value);
+    };
+
+    el.querySelector("#pw-cancel").onclick=()=>{
+      close(null);
+    };
+
+    inp.addEventListener("keydown",e=>{
+      if(e.key==="Enter"){
+        close(inp.value);
+      }
+
+      if(e.key==="Escape"){
+        close(null);
+      }
+    });
+
+    el.addEventListener("click",e=>{
+      if(e.target===el){
+        close(null);
+      }
+    });
+  });
+}
 function updateClock(){const now=new Date(),h=now.getHours();$("clock").innerText=now.toLocaleTimeString("zh-CN",{hour12:false});const y=now.getFullYear(),m=now.getMonth()+1,d=now.getDate(),week=["日","一","二","三","四","五","六"][now.getDay()];let lunarText="";try{const lunar=Solar.fromYmd(y,m,d).getLunar();lunarText=`农历${lunar.getMonthInChinese()}月${lunar.getDayInChinese()} · ${lunar.getYearShengXiao()}年${lunar.getJieQi()?` · ${lunar.getJieQi()}`:""}`}catch{}$("date-line").innerText=`${y}年${String(m).padStart(2,"0")}月${String(d).padStart(2,"0")}日 · 星期${week} · ${lunarText}`;const fest=festivalText(y,m,d);const greet=fest||(["凌晨了，早点休息。","早上好，新的一天开始了。","上午好，保持专注。","中午好，记得按时吃饭。","下午好，继续加油。","傍晚好，辛苦了。","晚上好，享受属于自己的时间。"][h<5?0:h<8?1:h<12?2:h<14?3:h<18?4:h<20?5:6]);$("greeting").innerText=greet}
 function festivalText(y,m,d){const md=`${m}-${d}`;const solar={"1-1":"🎉 元旦快乐！","3-8":"🌷 三八妇女节快乐！","4-1":"🌱 愚人节快乐！","5-1":"🛠️ 五一劳动节快乐！","6-1":"🎈 六一儿童节快乐！","10-1":"🇨🇳 国庆节快乐！","12-25":"🎄 圣诞快乐！"};if(solar[md])return solar[md];try{const l=Solar.fromYmd(y,m,d).getLunar(),lm=l.getMonth(),ld=l.getDay();const lunar={"1-1":"🧧 新年快乐！","1-15":"🏮 元宵节快乐！","5-5":"🎋 端午安康！","7-7":"💗 七夕快乐！","8-15":"🌕 中秋快乐！","9-9":"🍂 重阳安康！"};return lunar[`${lm}-${ld}`]||""}catch{return ""}}
 const WEATHER_ICONS={0:"☀️",1:"🌤️",2:"⛅",3:"☁️",45:"🌫️",48:"🌫️",51:"🌦️",53:"🌦️",55:"🌧️",56:"🌧️",57:"🌧️",61:"🌧️",63:"🌧️",65:"🌧️",66:"🌧️",67:"🌧️",71:"🌨️",73:"❄️",75:"❄️",77:"❄️",80:"🌦️",81:"🌧️",82:"🌧️",85:"🌨️",86:"🌨️",95:"⛈️",96:"⛈️",99:"⛈️"};
