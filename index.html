@@ -53,7 +53,10 @@ function showToast(msg, type='info'){
     <div class="flex gap-2"><button onclick="setTheme('theme-light')" class="flex-1 py-2 rounded-lg bg-slate-800 text-xs">☀️ 日间</button><button onclick="setTheme('theme-dark')" class="flex-1 py-2 rounded-lg bg-slate-800 text-xs">🌙 夜间</button></div>
     <div class="admin-only border-t border-slate-700 pt-3 space-y-2"><div class="text-xs text-slate-400 font-bold">全站壁纸</div><div class="flex gap-2"><input id="bg-url" class="flex-1 bg-slate-800 rounded-lg px-2 py-2 text-xs" placeholder="https://..."><button onclick="saveWallpaper()" class="bg-indigo-600 rounded-lg px-3 text-xs">保存</button></div><button onclick="clearWallpaper()" class="text-xs text-red-400">清除壁纸</button></div>
     <div class="admin-only border-t border-slate-700 pt-3"><div class="text-xs text-slate-400 font-bold mb-2">修改管理员密码</div><div class="flex gap-2"><input id="new-pwd" type="password" class="flex-1 bg-slate-800 rounded-lg px-2 py-2 text-xs" placeholder="新密码"><button onclick="changePassword()" class="bg-emerald-600 rounded-lg px-3 text-xs">保存</button></div></div>
-    <div class="border-t border-slate-700 pt-3"><button id="logout-btn" onclick="logout()" class="hidden admin-only w-full py-2 rounded-lg bg-red-950/60 text-red-300 text-xs">退出登录</button></div>
+    <div class="border-t border-slate-700 pt-3 space-y-2">
+  <button id="login-btn" onclick="login()" class="w-full py-2 rounded-lg bg-indigo-600/80 text-indigo-100 text-xs">管理员登录</button>
+  <button id="logout-btn" onclick="logout()" class="hidden admin-only w-full py-2 rounded-lg bg-red-950/60 text-red-300 text-xs">退出登录</button>
+</div>
   </div>
 </div>
 <main class="max-w-7xl mx-auto px-4 py-12 lg:py-16">
@@ -78,7 +81,12 @@ function visible(x){return !isPrivate(x)||isAdmin}
 async function api(url,opt={}){const r=await fetch(url,{credentials:"same-origin",...opt});if(!r.ok)throw new Error(await r.text());return r;}
 async function loadAll(){try{const auth=await api("/api/auth");isAdmin=(await auth.json()).authenticated===true}catch{isAdmin=false}try{config=await (await api("/api/config")).json()}catch{config={wallpaper:"",dynamicSections:[]}}try{customLinks=await (await api("/api/links")).json()}catch{customLinks=[]}normalizeData();applyAdminUI();renderAll();}
 function normalizeData(){config.dynamicSections=(config.dynamicSections||[]).map(s=>({id:s.id||uid(),title:s.title||"未命名分类",private:isPrivate(s.private),links:(s.links||[]).map(l=>({id:l.id||uid(),name:l.name||"未命名",url:l.url||"#",private:isPrivate(l.private)}))}));customLinks=(customLinks||[]).map(l=>({id:l.id||uid(),name:l.name||"未命名",url:l.url||"#",private:isPrivate(l.private)}));}
-function applyAdminUI(){document.body.classList.toggle("is-admin",isAdmin);$("admin-badge").classList.toggle("hidden",!isAdmin);$("logout-btn").classList.toggle("hidden",!isAdmin)}
+function applyAdminUI(){
+  document.body.classList.toggle("is-admin",isAdmin);
+  $("admin-badge").classList.toggle("hidden",!isAdmin);
+  $("logout-btn").classList.toggle("hidden",!isAdmin);
+  $("login-btn").classList.toggle("hidden",isAdmin);
+}
 function renderAll(){renderSections();renderCustom();renderFriends();if(config.wallpaper)applyBg(config.wallpaper)}
 function getMasonryColumnCount(){return window.innerWidth>=1280?3:1}
 function renderSections(){const grid=$("nav-grid");grid.innerHTML="";const count=getMasonryColumnCount();const cols=[];for(let i=0;i<count;i++){const c=document.createElement("div");c.className="nav-column";c.dataset.column=i;grid.appendChild(c);cols.push(c)}const cards=[];config.dynamicSections.forEach(sec=>{if(!visible(sec.private))return;cards.push(makeSectionCard(sec))});cards.forEach(card=>{let target=cols[0];for(const c of cols){if(c.scrollHeight<target.scrollHeight)target=c}target.appendChild(card)});if(isAdmin){const add=document.createElement("button");add.className="add-section-card glass rounded-2xl p-6 border-dashed border-2 border-slate-500/30 text-slate-400 hover:text-indigo-300";add.innerHTML='<i class="fas fa-plus text-2xl mb-2"></i><div class="text-sm">添加自定义分类</div>';add.onclick=()=>openSectionModal();let target=cols[0];for(const c of cols){if(c.scrollHeight<target.scrollHeight)target=c}target.appendChild(add)}}
